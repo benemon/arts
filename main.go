@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -80,6 +81,10 @@ func main() {
 	iface := flag.String("interface", "0.0.0.0", "the default interface on which to listen for requests")
 	port := flag.String("port", "9090", "the default port on which to listen for requests")
 	flag.Parse()
+
+	ansibleHost := os.Getenv("ARTS_ANSIBLE_HOST")
+	ansibleUser := os.Getenv("ARTS_ANSIBLE_USER")
+	ansiblePassword := os.Getenv("ARTS_ANSIBLE_PASSWORD")
 
 	router := gin.Default()
 	router.POST("/request/:jobTemplateId", runTaskRequest)

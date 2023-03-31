@@ -51,6 +51,10 @@ type RunTaskResponse struct {
 
 func runTaskRequest(c *gin.Context) {
 	var request RunTaskRequest
+	jobTemplateId := c.Param("jobTemplateId")
+
+	log.Printf("Run Task event received for Job Template ID %s", jobTemplateId)
+
 	err := c.Bind(&request)
 	if err != nil {
 		log.Fatalf(err.Error())
@@ -60,7 +64,7 @@ func runTaskRequest(c *gin.Context) {
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
-	fmt.Printf("%s", string(jsonOutput))
+	log.Printf("%s", string(jsonOutput))
 
 	var response RunTaskResponse
 	response.Data.Type = "task-results"
@@ -78,6 +82,6 @@ func main() {
 	flag.Parse()
 
 	router := gin.Default()
-	router.POST("/request", runTaskRequest)
+	router.POST("/request/:jobTemplateId", runTaskRequest)
 	router.Run(fmt.Sprintf("%s:%s", *iface, *port))
 }

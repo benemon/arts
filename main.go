@@ -1,26 +1,31 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-var badSecret string = "some_awful_secret_thing_I_need_to_source_from_elsewhere"
-var tfcTaskSignatureHeader string = "X-TFC-Task-Signature"
 var ansibleHost string
 var ansibleUser string
 var ansiblePassword string
+
+const (
+	Passed  = "passed"
+	Failed  = "failed"
+	Running = "running"
+)
+
+const (
+	TaskResults = "task-results"
+)
 
 type RunTaskRequest struct {
 	PayloadVersion                  int       `json:"payload_version,omitempty"`
@@ -87,11 +92,7 @@ type APIError struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-func checkBasicAuth(workspaceID string, hmac string) bool {
-	generated := generateHMAC(workspaceID, badSecret)
-	return generated == hmac
-}
-
+// handler for Run Task payload
 func runTaskRequest(c *gin.Context) {
 	var request RunTaskRequest
 	jobTemplateId := c.Param("jobTemplateId")
@@ -100,73 +101,77 @@ func runTaskRequest(c *gin.Context) {
 
 	err := c.Bind(&request)
 	if err != nil {
-		log.Fatalf(err.Error())
+		log.Print(err.Error())
 	}
 
 	jsonOutput, err := json.MarshalIndent(request, "", " ")
 	if err != nil {
-		log.Fatalf(err.Error())
+		log.Print(err.Error())
 	}
 	log.Printf("%s", string(jsonOutput))
 
-	runTaskInitialResponse(&request, c)
+	acknowledgeRunTaskRequest(&request, c)
 }
 
-func runTaskInitialResponse(req *RunTaskRequest, c *gin.Context) {
-	authHeader := c.GetHeader(tfcTaskSignatureHeader)
+// function to craft the initial ackowledgement to TFC that we've recieved the Run Task request
+func acknowledgeRunTaskRequest(req *RunTaskRequest, c *gin.Context) {
+	// send the ackowledgement that we've had the request
+	c.Status(http.StatusOK)
 
-	if len(authHeader) > 0 {
-		if checkBasicAuth(req.WorkspaceID, authHeader) {
-			c.Status(http.StatusOK)
-		} else {
-			unauthorisedResponse(c)
-		}
+	// we'll just send an immediate response because we're not doing anything yet
+	response := createRunTaskResponse(Passed, "Request Completed Succesfully")
+	sendTFCResponse(&response, req.TaskResultCallbackURL, req.AccessToken)
+}
 
-	} else {
-		unauthorisedResponse(c)
+func createRunTaskResponse(status string, message string) RunTaskResponse {
 
+	var response RunTaskResponse
+
+	response.Data.Type = TaskResults
+	response.Data.Attributes.Status = status
+	response.Data.Attributes.Message = message
+	response.Data.Attributes.URL = "https://arts-arts.apps.hoth.onmi.cloud"
+
+	return response
+
+}
+
+func sendTFCResponse(runTaskResponse *RunTaskResponse, uri string, token string) {
+	client := &http.Client{
+		Timeout: time.Second * 10,
 	}
-}
 
-func unauthorisedResponse(c *gin.Context) {
-	var apiError APIError
-	apiError.Status = strconv.Itoa(http.StatusUnauthorized)
-	apiError.Title = "Unauthorised Request"
+	jsonResponse, jsonErr := json.Marshal(runTaskResponse)
 
-	var apiErrors APIErrors
-	apiErrors.Errors = append(apiErrors.Errors, apiError)
-	c.JSON(http.StatusUnauthorized, apiErrors)
-}
+	if jsonErr != nil {
+		log.Print(jsonErr)
+	}
 
-func hmacRequest(c *gin.Context) {
-	var request HMACRequest
+	log.Println("OBJECT")
+	log.Println(string(jsonResponse))
 
-	err := c.Bind(&request)
+	req, reqErr := http.NewRequest("PATCH", uri, bytes.NewBuffer(jsonResponse))
+
+	if reqErr != nil {
+		log.Print(reqErr)
+	}
+
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	log.Println("REQUEST")
+	log.Println(req)
+
+	response, err := client.Do(req)
+
 	if err != nil {
-		log.Fatalf(err.Error())
+		log.Print(err.Error())
 	}
 
-	hmacResponse(c, &request)
-}
+	log.Println("RESPONSE")
+	log.Print(response)
 
-func hmacResponse(c *gin.Context, req *HMACRequest) {
-	var hmacResponse HMACResponse
+	defer response.Body.Close()
 
-	hmacResponse.WorkspaceID = req.WorkspaceID
-	hmacResponse.HMAC = generateHMAC(req.WorkspaceID, badSecret)
-
-	c.JSON(http.StatusOK, hmacResponse)
-}
-
-func generateHMAC(data string, secret string) string {
-	hmac := hmac.New(sha256.New, []byte(secret))
-	hmac.Write([]byte(data))
-	sha := hex.EncodeToString(hmac.Sum(nil))
-	log.Println("====================================")
-	log.Println("Workspace ID:", data)
-	log.Println("HMAC:", sha)
-	log.Println("====================================")
-	return sha
 }
 
 func init() {
@@ -185,7 +190,5 @@ func main() {
 	router.POST("/public/job/:jobTemplateId", runTaskRequest)
 	router.POST("/public/workflow/:workflowTemplateId", runTaskRequest)
 	router.POST("/public/inventory", runTaskRequest)
-	router.POST("/private/hmac", hmacRequest)
 	router.Run(fmt.Sprintf("%s:%s", *iface, *port))
-
 }

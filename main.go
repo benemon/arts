@@ -10,10 +10,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+var badSecret string = "some_awful_secret_thing_I_need_to_source_from_elsewhere"
+var tfcTaskSignatureHeader string = "X-TFC-Task-Signature"
 
 type RunTaskRequest struct {
 	PayloadVersion                  int       `json:"payload_version,omitempty"`
@@ -67,6 +71,27 @@ type AnsibleJobTemplateRequest struct {
 	ExtraVars map[string]any `json:"extra_vars,omitempty"`
 }
 
+type APIErrors struct {
+	Errors []APIError `json:"errors"`
+}
+
+type APIError struct {
+	Status string `json:"status"`
+	Source struct {
+		Pointer string `json:"pointer"`
+	} `json:"source,omitempty"`
+	Title  string `json:"title"`
+	Detail string `json:"detail,omitempty"`
+}
+
+func checkBasicAuth(workspaceID string, hmac string) bool {
+	generated := generateHMAC(workspaceID, badSecret)
+	if generated == hmac {
+		return true
+	}
+	return false
+}
+
 func runTaskRequest(c *gin.Context) {
 	var request RunTaskRequest
 	jobTemplateId := c.Param("jobTemplateId")
@@ -84,17 +109,33 @@ func runTaskRequest(c *gin.Context) {
 	}
 	log.Printf("%s", string(jsonOutput))
 
-	runTaskResponse(c)
+	runTaskInitialResponse(&request, c)
 }
 
-func runTaskResponse(c *gin.Context) {
-	var response RunTaskResponse
-	response.Data.Type = "task-results"
-	response.Data.Attributes.Status = "passed"
-	response.Data.Attributes.Message = "The task completed succesfully"
-	response.Data.Attributes.URL = "http://localhost:9090/request"
+func runTaskInitialResponse(req *RunTaskRequest, c *gin.Context) {
+	authHeader := c.GetHeader(tfcTaskSignatureHeader)
 
-	c.JSON(http.StatusOK, response)
+	if len(authHeader) > 0 {
+		if checkBasicAuth(req.WorkspaceID, authHeader) {
+			c.Status(http.StatusOK)
+		} else {
+			unauthorisedResponse(c)
+		}
+
+	} else {
+		unauthorisedResponse(c)
+
+	}
+}
+
+func unauthorisedResponse(c *gin.Context) {
+	var apiError APIError
+	apiError.Status = strconv.Itoa(http.StatusUnauthorized)
+	apiError.Title = "Unauthorised Request"
+
+	var apiErrors APIErrors
+	apiErrors.Errors = append(apiErrors.Errors, apiError)
+	c.JSON(http.StatusUnauthorized, apiErrors)
 }
 
 func hmacRequest(c *gin.Context) {
@@ -104,22 +145,28 @@ func hmacRequest(c *gin.Context) {
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
-	log.Println(request.WorkspaceID)
+
 	hmacResponse(c, &request)
 }
 
 func hmacResponse(c *gin.Context, req *HMACRequest) {
 	var hmacResponse HMACResponse
-	log.Println(req.WorkspaceID)
-
-	hmac := hmac.New(sha256.New, []byte("would_use_vault_as_a_kms"))
-	hmac.Write([]byte(req.WorkspaceID))
-	sha := hex.EncodeToString(hmac.Sum(nil))
 
 	hmacResponse.WorkspaceID = req.WorkspaceID
-	hmacResponse.HMAC = sha
+	hmacResponse.HMAC = generateHMAC(req.WorkspaceID, badSecret)
 
 	c.JSON(http.StatusOK, hmacResponse)
+}
+
+func generateHMAC(data string, secret string) string {
+	hmac := hmac.New(sha256.New, []byte(secret))
+	hmac.Write([]byte(data))
+	sha := hex.EncodeToString(hmac.Sum(nil))
+	log.Println("====================================")
+	log.Println("Workspace ID:", data)
+	log.Println("HMAC:", sha)
+	log.Println("====================================")
+	return sha
 }
 
 func main() {
@@ -134,8 +181,10 @@ func main() {
 	//
 
 	router := gin.Default()
-	router.POST("/job/:jobTemplateId", runTaskRequest)
-	router.POST("/hmac", hmacRequest)
+	router.POST("/public/job/:jobTemplateId", runTaskRequest)
+	router.POST("/public/workflow/:workflowTemplateId", runTaskRequest)
+	router.POST("/public/inventory", runTaskRequest)
+	router.POST("/private/hmac", hmacRequest)
 	router.Run(fmt.Sprintf("%s:%s", *iface, *port))
 
 }

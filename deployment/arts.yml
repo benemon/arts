@@ -29,6 +29,13 @@ spec:
       containers:
       - image: image-registry.openshift-image-registry.svc:5000/arts/arts:latest
         name: arts
+        env:
+        - name: ARTS_ANSIBLE_HOST
+          value: "controller-service.aap.svc.cluster.local"
+        - name: ARTS_ANSIBLE_USER
+          value: "admin"
+        - name: ARTS_ANSIBLE_PASSWORD
+          value: ""
         ports:
         - containerPort: 9090
         securityContext: 

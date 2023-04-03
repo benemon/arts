@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -79,6 +81,40 @@ type AnsibleJobTemplateRequest struct {
 	ExtraVars map[string]any `json:"extra_vars,omitempty"`
 }
 
+type AnsibleInventoryRequest struct {
+	HostFilter   string `json:"host_filter"`
+	Kind         string `json:"kind"`
+	Name         string `json:"name"`
+	Organization int    `json:"organization"`
+}
+
+type AnsibleAuthResponse struct {
+	ID      int    `json:"id"`
+	Type    string `json:"type"`
+	URL     string `json:"url"`
+	Related struct {
+		User           string `json:"user"`
+		ActivityStream string `json:"activity_stream"`
+	} `json:"related"`
+	SummaryFields struct {
+		User struct {
+			ID        int    `json:"id"`
+			Username  string `json:"username"`
+			FirstName string `json:"first_name"`
+			LastName  string `json:"last_name"`
+		} `json:"user"`
+	} `json:"summary_fields"`
+	Created      time.Time `json:"created"`
+	Modified     time.Time `json:"modified"`
+	Description  string    `json:"description"`
+	User         int       `json:"user"`
+	Token        string    `json:"token"`
+	RefreshToken any       `json:"refresh_token"`
+	Application  any       `json:"application"`
+	Expires      time.Time `json:"expires"`
+	Scope        string    `json:"scope"`
+}
+
 type APIErrors struct {
 	Errors []APIError `json:"errors"`
 }
@@ -93,11 +129,8 @@ type APIError struct {
 }
 
 // handler for Run Task payload
-func runTaskRequest(c *gin.Context) {
+func parseRunTaskPayload(c *gin.Context) RunTaskRequest {
 	var request RunTaskRequest
-	jobTemplateId := c.Param("jobTemplateId")
-
-	log.Printf("Run Task event received for Job Template ID %s", jobTemplateId)
 
 	err := c.Bind(&request)
 	if err != nil {
@@ -110,17 +143,7 @@ func runTaskRequest(c *gin.Context) {
 	}
 	log.Printf("%s", string(jsonOutput))
 
-	acknowledgeRunTaskRequest(&request, c)
-}
-
-// function to craft the initial ackowledgement to TFC that we've recieved the Run Task request
-func acknowledgeRunTaskRequest(req *RunTaskRequest, c *gin.Context) {
-	// send the ackowledgement that we've had the request
-	c.Status(http.StatusOK)
-
-	// we'll just send an immediate response because we're not doing anything yet
-	response := createRunTaskResponse(Passed, "Request Completed Succesfully")
-	sendTFCResponse(&response, req.TaskResultCallbackURL, req.AccessToken)
+	return request
 }
 
 func createRunTaskResponse(status string, message string) RunTaskResponse {
@@ -174,6 +197,113 @@ func sendTFCResponse(runTaskResponse *RunTaskResponse, uri string, token string)
 
 }
 
+func ansibleAuthRequest() AnsibleAuthResponse {
+	client := &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	req, reqErr := http.NewRequest("POST", fmt.Sprintf("%s/%s", ansibleHost, "/api/v2/tokens/"), nil)
+
+	if reqErr != nil {
+		log.Print(reqErr)
+	}
+
+	req.SetBasicAuth(ansibleUser, ansiblePassword)
+
+	response, err := client.Do(req)
+
+	if err != nil {
+		log.Print(err.Error())
+	}
+
+	body, nil := ioutil.ReadAll(response.Body)
+	var authResponse AnsibleAuthResponse
+	bindErr := json.Unmarshal(body, &authResponse)
+	if bindErr != nil {
+		log.Print(bindErr.Error())
+	}
+
+	defer response.Body.Close()
+
+	return authResponse
+}
+
+func ansibleCreateInventoryRequest(request RunTaskRequest, organisation int, token string) {
+	client := &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	var inventoryReq AnsibleInventoryRequest
+	inventoryReq.Kind = ""
+	inventoryReq.Name = request.WorkspaceID
+	inventoryReq.Organization = organisation
+	inventoryReq.HostFilter = ""
+
+	jsonResponse, jsonErr := json.Marshal(inventoryReq)
+
+	if jsonErr != nil {
+		log.Print(jsonErr)
+	}
+
+	req, reqErr := http.NewRequest("POST", fmt.Sprintf("%s/%s", ansibleHost, "/api/v2/inventories/"), bytes.NewBuffer(jsonResponse))
+
+	if reqErr != nil {
+		log.Print(reqErr)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	response, err := client.Do(req)
+
+	if err != nil {
+		log.Print(err.Error())
+	}
+
+	defer response.Body.Close()
+
+}
+
+func handleJobTemplateRunTask(c *gin.Context) {
+	var runTask = parseRunTaskPayload(c)
+	jobTemplateId := c.Param("jobTemplateId")
+
+	log.Printf("Run Task event received for Job Template ID %s", jobTemplateId)
+
+	// send the ackowledgement that we've had the request
+	c.Status(http.StatusOK)
+
+	// we'll just send an immediate response because we're not doing anything yet
+	response := createRunTaskResponse(Passed, "Request Completed Succesfully")
+	sendTFCResponse(&response, runTask.TaskResultCallbackURL, runTask.AccessToken)
+
+}
+
+func handleWorkflowTemplateRunTask(c *gin.Context) {
+	var runTask = parseRunTaskPayload(c)
+	workflowTemplateId := c.Param("workflowTemplateId")
+
+	log.Printf("Run Task event received for Workflow Template ID %s", workflowTemplateId)
+
+	// we'll just send an immediate response because we're not doing anything yet
+	response := createRunTaskResponse(Passed, "Request Completed Succesfully")
+	sendTFCResponse(&response, runTask.TaskResultCallbackURL, runTask.AccessToken)
+
+}
+
+func handleInventoryRunTask(c *gin.Context) {
+	var runTask = parseRunTaskPayload(c)
+	var ansibleAuthRequest = ansibleAuthRequest()
+	orgIdStr := c.Param("organisationId")
+	organisationId, err := strconv.Atoi(orgIdStr)
+
+	log.Printf("Inventory Run Task event received for Organisation Template ID %s", orgIdStr)
+	if err != nil {
+		log.Print(err.Error())
+	}
+	ansibleCreateInventoryRequest(runTask, organisationId, ansibleAuthRequest.Token)
+}
+
 func init() {
 	ansibleHost = os.Getenv("ARTS_ANSIBLE_HOST")
 	ansibleUser = os.Getenv("ARTS_ANSIBLE_USER")
@@ -187,8 +317,8 @@ func main() {
 	flag.Parse()
 
 	router := gin.Default()
-	router.POST("/public/job/:jobTemplateId", runTaskRequest)
-	router.POST("/public/workflow/:workflowTemplateId", runTaskRequest)
-	router.POST("/public/inventory", runTaskRequest)
+	router.POST("/public/job/:jobTemplateId", handleJobTemplateRunTask)
+	router.POST("/public/workflow/:workflowTemplateId", handleWorkflowTemplateRunTask)
+	router.POST("/public/inventory/:organisationId", handleInventoryRunTask)
 	router.Run(fmt.Sprintf("%s:%s", *iface, *port))
 }

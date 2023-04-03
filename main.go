@@ -18,6 +18,9 @@ import (
 
 var badSecret string = "some_awful_secret_thing_I_need_to_source_from_elsewhere"
 var tfcTaskSignatureHeader string = "X-TFC-Task-Signature"
+var ansibleHost string
+var ansibleUser string
+var ansiblePassword string
 
 type RunTaskRequest struct {
 	PayloadVersion                  int       `json:"payload_version,omitempty"`
@@ -86,10 +89,7 @@ type APIError struct {
 
 func checkBasicAuth(workspaceID string, hmac string) bool {
 	generated := generateHMAC(workspaceID, badSecret)
-	if generated == hmac {
-		return true
-	}
-	return false
+	return generated == hmac
 }
 
 func runTaskRequest(c *gin.Context) {
@@ -169,16 +169,17 @@ func generateHMAC(data string, secret string) string {
 	return sha
 }
 
+func init() {
+	ansibleHost = os.Getenv("ARTS_ANSIBLE_HOST")
+	ansibleUser = os.Getenv("ARTS_ANSIBLE_USER")
+	ansiblePassword = os.Getenv("ARTS_ANSIBLE_PASSWORD")
+}
+
 func main() {
 	iface := flag.String("interface", "0.0.0.0", "the default interface on which to listen for requests")
 	port := flag.String("port", "9090", "the default port on which to listen for requests")
 	log.Println(os.Hostname())
 	flag.Parse()
-
-	// ansibleHost := os.Getenv("ARTS_ANSIBLE_HOST")
-	// ansibleUser := os.Getenv("ARTS_ANSIBLE_USER")
-	// ansiblePassword := os.Getenv("ARTS_ANSIBLE_PASSWORD")
-	//
 
 	router := gin.Default()
 	router.POST("/public/job/:jobTemplateId", runTaskRequest)

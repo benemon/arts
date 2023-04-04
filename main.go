@@ -29,6 +29,10 @@ const (
 	TaskResults = "task-results"
 )
 
+const (
+	TestToken = "test-token"
+)
+
 type RunTaskRequest struct {
 	PayloadVersion                  int       `json:"payload_version,omitempty"`
 	AccessToken                     string    `json:"access_token,omitempty"`
@@ -270,12 +274,13 @@ func handleJobTemplateRunTask(c *gin.Context) {
 
 	log.Printf("Run Task event received for Job Template ID %s", jobTemplateId)
 
-	// send the ackowledgement that we've had the request
 	c.Status(http.StatusOK)
-
-	// we'll just send an immediate response because we're not doing anything yet
-	response := createRunTaskResponse(Passed, "Request Completed Succesfully")
-	sendTFCResponse(&response, runTask.TaskResultCallbackURL, runTask.AccessToken)
+	// if this isn't a test, send the ackowledgement that we've had the request
+	if runTask.AccessToken != TestToken {
+		// we'll just send an immediate response because we're not doing anything yet
+		response := createRunTaskResponse(Passed, "Request Completed Succesfully")
+		sendTFCResponse(&response, runTask.TaskResultCallbackURL, runTask.AccessToken)
+	}
 
 }
 
@@ -285,9 +290,13 @@ func handleWorkflowTemplateRunTask(c *gin.Context) {
 
 	log.Printf("Run Task event received for Workflow Template ID %s", workflowTemplateId)
 
-	// we'll just send an immediate response because we're not doing anything yet
-	response := createRunTaskResponse(Passed, "Request Completed Succesfully")
-	sendTFCResponse(&response, runTask.TaskResultCallbackURL, runTask.AccessToken)
+	c.Status(http.StatusOK)
+	// if this isn't a test, send the ackowledgement that we've had the request
+	if runTask.AccessToken != TestToken {
+		// we'll just send an immediate response because we're not doing anything yet
+		response := createRunTaskResponse(Passed, "Request Completed Succesfully")
+		sendTFCResponse(&response, runTask.TaskResultCallbackURL, runTask.AccessToken)
+	}
 
 }
 
@@ -297,11 +306,18 @@ func handleInventoryRunTask(c *gin.Context) {
 	orgIdStr := c.Param("organisationId")
 	organisationId, err := strconv.Atoi(orgIdStr)
 
-	log.Printf("Inventory Run Task event received for Organisation Template ID %s", orgIdStr)
-	if err != nil {
-		log.Print(err.Error())
+	c.Status(http.StatusOK)
+
+	log.Printf("ACCESS TOKEN: %s", runTask.AccessToken)
+	// if this isn't a test, send the ackowledgement that we've had the request
+	if runTask.AccessToken != TestToken {
+		log.Printf("Inventory Run Task event received for Organisation Template ID %s", orgIdStr)
+		if err != nil {
+			log.Print(err.Error())
+		}
+		ansibleCreateInventoryRequest(runTask, organisationId, ansibleAuthRequest.Token)
 	}
-	ansibleCreateInventoryRequest(runTask, organisationId, ansibleAuthRequest.Token)
+
 }
 
 func init() {

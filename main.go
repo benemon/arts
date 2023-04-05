@@ -66,8 +66,8 @@ type RunTaskResponse struct {
 		Type       string `json:"type"`
 		Attributes struct {
 			Status  string `json:"status"`
-			Message string `json:"message"`
-			URL     string `json:"url"`
+			Message string `json:"message,omitempty"`
+			URL     string `json:"url,omitempty"`
 		} `json:"attributes"`
 	} `json:"data"`
 }
@@ -86,7 +86,7 @@ type AnsibleJobTemplateRequest struct {
 	ExtraVars map[string]any `json:"extra_vars,omitempty"`
 }
 
-type AnsibleWorkflowJobTemplate struct {
+type AnsibleWorkflowJobTemplateRequest struct {
 	AskLimitOnLaunch     bool           `json:"ask_limit_on_launch,omitempty"`
 	AskScmBranchOnLaunch bool           `json:"ask_scm_branch_on_launch,omitempty"`
 	ExtraVars            map[string]any `json:"extra_vars,omitempty"`
@@ -520,23 +520,27 @@ func parseRunTaskPayload(c *gin.Context) RunTaskRequest {
 		log.Print(err.Error())
 	}
 
-	jsonOutput, err := json.MarshalIndent(request, "", " ")
-	if err != nil {
-		log.Print(err.Error())
-	}
-	log.Printf("%s", string(jsonOutput))
-
 	return request
 }
 
-func createRunTaskResponse(status string, message string) *RunTaskResponse {
+func createRunTaskResponse(status string, message string, detailsUrl string) *RunTaskResponse {
 
 	var response RunTaskResponse
 
 	response.Data.Type = TaskResults
 	response.Data.Attributes.Status = status
-	response.Data.Attributes.Message = message
-	response.Data.Attributes.URL = "https://arts-arts.apps.hoth.onmi.cloud"
+	if len(message) > 0 {
+		response.Data.Attributes.Message = message
+	}
+	if len(detailsUrl) > 0 {
+		response.Data.Attributes.URL = detailsUrl
+	}
+
+	// json, err := json.MarshalIndent(response, "", " ")
+	// if err != nil {
+	// 	log.Print(err)
+	// }
+	// log.Println((string(json)))
 
 	return &response
 
@@ -610,7 +614,7 @@ func ansibleTokenRevoke(authResponse *AnsibleAuthResponse) error {
 		Timeout: time.Second * 10,
 	}
 
-	req, reqErr := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%d", ansibleHost, "/api/v2/tokens/", authResponse.ID), nil)
+	req, reqErr := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%d/", ansibleHost, "/api/v2/tokens/", authResponse.ID), nil)
 
 	if reqErr != nil {
 		return fmt.Errorf(reqErr.Error())
@@ -736,8 +740,8 @@ func ansibleWorkflowJobTemplateRequest(request RunTaskRequest, workflowTemplateI
 		Timeout: time.Second * 10,
 	}
 
-	var jtReq AnsibleJobTemplateRequest
-	jsonResponse, jsonErr := json.Marshal(jtReq)
+	var wftjtReq AnsibleWorkflowJobTemplateRequest
+	jsonResponse, jsonErr := json.Marshal(wftjtReq)
 
 	if jsonErr != nil {
 		return nil, fmt.Errorf(jsonErr.Error())
@@ -784,16 +788,16 @@ func handleJobTemplateRunTask(c *gin.Context) {
 	if runTask.AccessToken != TestToken {
 		var ansibleAuthResponse, tokErr = ansibleTokenRequest()
 		if tokErr != nil {
-			errResponse := createRunTaskResponse(Failed, tokErr.Error())
+			errResponse := createRunTaskResponse(Failed, tokErr.Error(), "")
 			tfcRunTaskResponse(errResponse, runTask.TaskResultCallbackURL, runTask.AccessToken)
 		}
 
 		var jobTemplateResponse, jtErr = ansibleJobTemplateRequest(runTask, jobTemplateId, ansibleAuthResponse)
 		if jtErr != nil {
-			errResponse := createRunTaskResponse(Failed, jtErr.Error())
+			errResponse := createRunTaskResponse(Failed, jtErr.Error(), "")
 			tfcRunTaskResponse(errResponse, runTask.TaskResultCallbackURL, runTask.AccessToken)
 		} else {
-			response := createRunTaskResponse(Passed, fmt.Sprintf("Succesfully triggered Ansible Job Template, %s", jobTemplateResponse.Name))
+			response := createRunTaskResponse(Passed, fmt.Sprintf("Succesfully triggered Ansible Job Template, %s", jobTemplateResponse.Name), fmt.Sprintf("%s/#/jobs/playbook/%d/output", ansibleHost, jobTemplateResponse.ID))
 			tfcRunTaskResponse(response, runTask.TaskResultCallbackURL, runTask.AccessToken)
 		}
 		ansibleTokenRevoke(ansibleAuthResponse)
@@ -812,16 +816,16 @@ func handleWorkflowJobTemplateRunTask(c *gin.Context) {
 	if runTask.AccessToken != TestToken {
 		var ansibleAuthResponse, tokErr = ansibleTokenRequest()
 		if tokErr != nil {
-			errResponse := createRunTaskResponse(Failed, tokErr.Error())
+			errResponse := createRunTaskResponse(Failed, tokErr.Error(), "")
 			tfcRunTaskResponse(errResponse, runTask.TaskResultCallbackURL, runTask.AccessToken)
 		}
 
 		var workflowJobTemplateResponse, wfjtErr = ansibleWorkflowJobTemplateRequest(runTask, workflowTemplateId, ansibleAuthResponse)
 		if wfjtErr != nil {
-			errResponse := createRunTaskResponse(Failed, wfjtErr.Error())
+			errResponse := createRunTaskResponse(Failed, wfjtErr.Error(), "")
 			tfcRunTaskResponse(errResponse, runTask.TaskResultCallbackURL, runTask.AccessToken)
 		} else {
-			response := createRunTaskResponse(Passed, fmt.Sprintf("Succesfully triggered Ansible Workflow Job Template, %s", workflowJobTemplateResponse.Name))
+			response := createRunTaskResponse(Passed, fmt.Sprintf("Succesfully triggered Ansible Workflow Job Template, %s", workflowJobTemplateResponse.Name), fmt.Sprintf("%s/#/jobs/workflow/%d/output", ansibleHost, workflowJobTemplateResponse.ID))
 			tfcRunTaskResponse(response, runTask.TaskResultCallbackURL, runTask.AccessToken)
 		}
 		ansibleTokenRevoke(ansibleAuthResponse)
@@ -844,16 +848,16 @@ func handleInventoryRunTask(c *gin.Context) {
 	if runTask.AccessToken != TestToken {
 		var ansibleAuthResponse, tokErr = ansibleTokenRequest()
 		if tokErr != nil {
-			errResponse := createRunTaskResponse(Failed, tokErr.Error())
+			errResponse := createRunTaskResponse(Failed, tokErr.Error(), "")
 			tfcRunTaskResponse(errResponse, runTask.TaskResultCallbackURL, runTask.AccessToken)
 		}
 
 		var ansibleInvResponse, invErr = ansibleCreateInventoryRequest(runTask, organisationId, ansibleAuthResponse)
 		if invErr != nil {
-			errResponse := createRunTaskResponse(Failed, invErr.Error())
+			errResponse := createRunTaskResponse(Failed, invErr.Error(), "")
 			tfcRunTaskResponse(errResponse, runTask.TaskResultCallbackURL, runTask.AccessToken)
 		} else {
-			response := createRunTaskResponse(Passed, fmt.Sprintf("Successfully created Ansible Inventory %s", ansibleInvResponse.Name))
+			response := createRunTaskResponse(Passed, fmt.Sprintf("Successfully created Ansible Inventory %s", ansibleInvResponse.Name), fmt.Sprintf("%s/#/inventories/inventory/%d/details", ansibleHost, ansibleInvResponse.ID))
 			tfcRunTaskResponse(response, runTask.TaskResultCallbackURL, runTask.AccessToken)
 		}
 		ansibleTokenRevoke(ansibleAuthResponse)
@@ -873,6 +877,7 @@ func main() {
 	log.Println(os.Hostname())
 	flag.Parse()
 
+	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
 	router.POST("/public/job/:jobTemplateId", handleJobTemplateRunTask)
 	router.POST("/public/workflow/:workflowTemplateId", handleWorkflowJobTemplateRunTask)

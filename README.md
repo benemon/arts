@@ -6,7 +6,7 @@ This is a spike project to look at integration between HashiCorp Terraform Cloud
 
 A Run Task is a way of integrating an enterprise Terraform platform with 3rd party applications and services.
 
-In lieu of [actual Run Task support](https://github.com/ansible/awx/issues/13785)in Ansible Automation Platform (AAP) / AWX, the goal is to create a simple shim that will act as an intermediary between the two platforms.
+In lieu of [actual Run Task support](https://github.com/ansible/awx/issues/13785) in Ansible Automation Platform (AAP) / AWX, the goal is to create a simple shim that will act as an intermediary between the two platforms.
 
 ## Usage
 

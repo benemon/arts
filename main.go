@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -536,11 +536,11 @@ func createRunTaskResponse(status string, message string, detailsUrl string) *Ru
 		response.Data.Attributes.URL = detailsUrl
 	}
 
-	// json, err := json.MarshalIndent(response, "", " ")
-	// if err != nil {
-	// 	log.Print(err)
-	// }
-	// log.Println((string(json)))
+	json, err := json.MarshalIndent(response, "", " ")
+	if err != nil {
+		log.Print(err)
+	}
+	log.Println((string(json)))
 
 	return &response
 
@@ -592,7 +592,7 @@ func ansibleTokenRequest() (*AnsibleAuthResponse, error) {
 		return nil, fmt.Errorf(respErr.Error())
 	}
 
-	body, bodyErr := ioutil.ReadAll(response.Body)
+	body, bodyErr := io.ReadAll(response.Body)
 	if bodyErr != nil {
 		return nil, fmt.Errorf(bodyErr.Error())
 	}
@@ -663,7 +663,7 @@ func ansibleCreateInventoryRequest(request RunTaskRequest, organisation int, ans
 		return nil, fmt.Errorf(respErr.Error())
 	}
 
-	body, bodyErr := ioutil.ReadAll(response.Body)
+	body, bodyErr := io.ReadAll(response.Body)
 	if reqErr != nil {
 		return nil, fmt.Errorf(bodyErr.Error())
 	}
@@ -719,7 +719,7 @@ func ansibleJobTemplateRequest(request RunTaskRequest, jobTemplateId string, ans
 		return nil, fmt.Errorf(respErr.Error())
 	}
 
-	body, bodyErr := ioutil.ReadAll(response.Body)
+	body, bodyErr := io.ReadAll(response.Body)
 	if bodyErr != nil {
 		return nil, fmt.Errorf(bodyErr.Error())
 	}
@@ -761,7 +761,7 @@ func ansibleWorkflowJobTemplateRequest(request RunTaskRequest, workflowTemplateI
 		return nil, fmt.Errorf(respErr.Error())
 	}
 
-	body, bodyErr := ioutil.ReadAll(response.Body)
+	body, bodyErr := io.ReadAll(response.Body)
 	if bodyErr != nil {
 		return nil, fmt.Errorf(bodyErr.Error())
 	}
